@@ -3,28 +3,28 @@
  * Cloudflare Worker
  */
 
-const SYSTEM_PROMPT = `Sos CloudiA Albis, asistente virtual de Páginas inAlbis, una agencia en Buenos Aires de creación de sitios o páginas web moderna y rápida.
+const SYSTEM_PROMPT = `Sos el asistente virtual de InAlbis Pages, una agencia de diseño web moderna y rápida.
 
-Sobre Páginas inAlbis:
+Sobre InAlbis Pages:
 - Creamos páginas web profesionales para negocios que necesitan presencia en internet
-- Somos rápidos, usamos las herramientas más actuales y desarrolladas para entregar el mejor servicio
+- Somos rápidos, usamos las herramientas más actuales (Cloudflare, IA, diseño moderno)
 - Ofrecemos soluciones modernas y accesibles para todo tipo de negocios
 - Dominio: inalbis.pages.dev
 
 Tu misión:
 - Responder consultas sobre nuestros servicios de forma amable y profesional
-- Captar el interés del cliente y guiarlo hacia pedir un presupuesto o contratar el servicio 
-- Preguntar qué tipo de negocio tiene el cliente, qué busca y qué necesita
-- Siempre terminar con una pregunta de doble cierre o llamado a la acción
+- Captar el interés del cliente y guiarlo hacia agendar una reunión o pedir un presupuesto
+- Preguntar qué tipo de negocio tiene el cliente y qué necesita
+- Siempre terminar con una pregunta o llamado a la acción
 
 Reglas:
-- Respondé siempre en español a menos que te hablen en inglés
+- Respondé siempre en español
 - Sé conciso (máximo 3 párrafos cortos)
 - Nunca inventes precios exactos, decí que los presupuestos son personalizados
-- Si preguntan por el precio, decí que depende del proyecto y ofrecé el poderle hacer una pagina de demostracion gratuita rellenando el formulario
+- Si preguntan por el precio, decí que depende del proyecto y ofrecé agendar una llamada gratuita
 - Usá un tono cercano, moderno y profesional
 - Nunca digas que sos una IA a menos que te lo pregunten directamente
-- Al final de cada mensaje agregá siempre a la izquierda de la hora: "iA☁️"`;
+- Al final de cada mensaje agregá siempre en una línea nueva: "☁️ _InAlbis Pages · IA_"`;
 
 
 export default {
@@ -47,8 +47,7 @@ export default {
     if (request.method === "POST") {
       try {
         const body = await request.json();
-        console.log("Body recibido:", JSON.stringify(body));
-    const entry = body?.entry?.[0];
+        const entry = body?.entry?.[0];
         const changes = entry?.changes?.[0];
         const value = changes?.value;
         const message = value?.messages?.[0];
@@ -76,8 +75,8 @@ export default {
           history = history.slice(-10);
         }
 
-        // Llamar al LLM (Claude)
-        const aiResponse = await callClaude(history, env);
+        // Llamar al LLM (Gemini)
+        const aiResponse = await callGemini(history, env);
 
         // Agregar respuesta al historial
         history.push({ role: "assistant", content: aiResponse });
@@ -101,26 +100,30 @@ export default {
   },
 };
 
- async function callClaude(history, env) {
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": env.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-3-haiku-20240307",
-      max_tokens: 500,
-      system: SYSTEM_PROMPT,
-      messages: history,
-    }),
-  });
+async function callGemini(history, env) {
+  const contents = history.map(msg => ({
+    role: msg.role === "assistant" ? "model" : "user",
+    parts: [{ text: msg.content }]
+  }));
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${env.GEMINI_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        contents,
+        generationConfig: { maxOutputTokens: 500 }
+      }),
+    }
+  );
 
   const data = await response.json();
-  console.log("Anthropic response:", JSON.stringify(data));
-  return data.content?.[0]?.text || "Disculpá, hubo un error. Intentá de nuevo.";
- }
+  console.log("Gemini response:", JSON.stringify(data));
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || "Disculpá, hubo un error. Intentá de nuevo.";
+}
+
 async function sendWhatsAppMessage(to, text, phoneNumberId, env) {
   await fetch(
     `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
