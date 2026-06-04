@@ -47,7 +47,8 @@ export default {
     if (request.method === "POST") {
       try {
         const body = await request.json();
-        const entry = body?.entry?.[0];
+        console.log("Body recibido:", JSON.stringify(body));
+    const entry = body?.entry?.[0];
         const changes = entry?.changes?.[0];
         const value = changes?.value;
         const message = value?.messages?.[0];
