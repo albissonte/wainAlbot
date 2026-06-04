@@ -75,8 +75,8 @@ export default {
           history = history.slice(-10);
         }
 
-        // Llamar al LLM (Gemini)
-        const aiResponse = await callGemini(history, env);
+        // Llamar al LLM (Groq)
+        const aiResponse = await callGroq(history, env);
 
         // Agregar respuesta al historial
         history.push({ role: "assistant", content: aiResponse });
@@ -100,28 +100,26 @@ export default {
   },
 };
 
-async function callGemini(history, env) {
-  const contents = history.map(msg => ({
-    role: msg.role === "assistant" ? "model" : "user",
-    parts: [{ text: msg.content }]
-  }));
-
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${env.GEMINI_API_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-        contents,
-        generationConfig: { maxOutputTokens: 500 }
-      }),
-    }
-  );
+async function callGroq(history, env) {
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${env.GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "llama3-8b-8192",
+      max_tokens: 500,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        ...history
+      ],
+    }),
+  });
 
   const data = await response.json();
-  console.log("Gemini response:", JSON.stringify(data));
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || "Disculpá, hubo un error. Intentá de nuevo.";
+  console.log("Groq response:", JSON.stringify(data));
+  return data.choices?.[0]?.message?.content || "Disculpá, hubo un error. Intentá de nuevo.";
 }
 
 async function sendWhatsAppMessage(to, text, phoneNumberId, env) {
