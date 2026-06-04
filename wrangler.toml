@@ -4,7 +4,7 @@ compatibility_date = "2024-01-01"
 
 [[kv_namespaces]]
 binding = "CHAT_HISTORY"
-id = "REEMPLAZAR_CON_TU_KV_ID"
+id = "488df7cf0f704e11ae3cdacc7a884058"
 
 [vars]
 # Estas variables se configuran como secrets, no acá
