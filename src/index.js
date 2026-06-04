@@ -109,7 +109,7 @@ async function callClaude(history, env) {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001", // modelo más económico
+      model: "claude-haiku-4-5", // modelo más económico
       max_tokens: 500,
       system: SYSTEM_PROMPT,
       messages: history,
