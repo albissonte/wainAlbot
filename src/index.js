@@ -100,7 +100,7 @@ export default {
   },
 };
 
-async function callClaude(history, env) {
+ async function callClaude(history, env) {
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -109,7 +109,7 @@ async function callClaude(history, env) {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-3-haiku-20240307", // modelo más económico
+      model: "claude-3-haiku-20240307",
       max_tokens: 500,
       system: SYSTEM_PROMPT,
       messages: history,
@@ -117,9 +117,9 @@ async function callClaude(history, env) {
   });
 
   const data = await response.json();
+  console.log("Anthropic response:", JSON.stringify(data));
   return data.content?.[0]?.text || "Disculpá, hubo un error. Intentá de nuevo.";
-}
-
+ }
 async function sendWhatsAppMessage(to, text, phoneNumberId, env) {
   await fetch(
     `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
