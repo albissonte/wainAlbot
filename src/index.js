@@ -1,14 +1,6 @@
 /**
  * WAinAlbot - WhatsApp + Web AI Bot para InAlbis Pages
  * Cloudflare Worker — src/index.js
- *
- * Variables de entorno (Settings → Variables y secretos):
- *   GROQ_API_KEY      → tu API key de Groq (ya la tenías)
- *   VERIFY_TOKEN      → el token que pusiste en Meta (ya lo tenías)
- *   WHATSAPP_TOKEN    → token de WhatsApp Business (ya lo tenías)
- *
- * KV Binding (Settings → Bindings):
- *   CHAT_HISTORY      → el mismo KV que ya tenías ✅
  */
 
 const SYSTEM_PROMPT = `Sos el asistente virtual de InAlbis Pages, una agencia de diseño web moderna y rápida.
@@ -40,7 +32,7 @@ Reglas:
 - Si preguntan por el precio, decí que depende del proyecto y ofrecé agendar una llamada gratuita
 - Usá un tono cercano, moderno y profesional
 - Nunca digas que sos una IA a menos que te lo pregunten directamente
-- Al final de cada mensaje agregá siempre en una línea nueva: "iA☁️"`;
+- Al final de cada mensaje agregá siempre en una línea nueva: "☁️ _InAlbis Pages · IA_"`;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -52,17 +44,14 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // Preflight CORS
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS });
     }
 
-    // ── Chatbot web: POST /chat ───────────────────────────────
     if (url.pathname === "/chat" && request.method === "POST") {
       return handleWebChat(request, env);
     }
 
-    // ── WhatsApp webhook: GET (verificación de Meta) ──────────
     if (request.method === "GET") {
       const mode      = url.searchParams.get("hub.mode");
       const token     = url.searchParams.get("hub.verify_token");
@@ -73,7 +62,6 @@ export default {
       return new Response("Forbidden", { status: 403 });
     }
 
-    // ── WhatsApp webhook: POST (mensajes entrantes) ───────────
     if (request.method === "POST") {
       return handleWhatsApp(request, env);
     }
@@ -84,7 +72,6 @@ export default {
 
 // ─────────────────────────────────────────────────────────────
 // HANDLER: Chatbot web
-// Recibe: { sessionId: string, message: string }
 // ─────────────────────────────────────────────────────────────
 async function handleWebChat(request, env) {
   try {
@@ -98,24 +85,41 @@ async function handleWebChat(request, env) {
     }
 
     const kvKey = `web:${sessionId}`;
+
+    // Detectar datos del cliente en el mensaje
+    const detected = detectData(message);
+
+    // Cargar perfil existente o crear uno nuevo
+    let profile = await loadProfile(kvKey, env);
+
+    // Si detectamos un teléfono nuevo, buscar si ya existe perfil en WhatsApp
+    if (detected.phone && !profile.phone) {
+      const waProfile = await env.CHAT_HISTORY.get(`profile:wa:${detected.phone}`);
+      if (waProfile) {
+        // Fusionar perfil de WhatsApp con el de la web
+        const waParsed = JSON.parse(waProfile);
+        profile = { ...waParsed, ...profile };
+      }
+      profile.phone = detected.phone;
+      // Crear vínculo teléfono → sessionId para que WhatsApp encuentre la web
+      await env.CHAT_HISTORY.put(`phone:${detected.phone}`, kvKey, { expirationTtl: 604800 });
+    }
+
+    if (detected.name  && !profile.name)  profile.name  = detected.name;
+    if (detected.email && !profile.email) profile.email = detected.email;
+
+    await saveProfile(kvKey, profile, env);
+
+    // Historial
     const stored = await env.CHAT_HISTORY.get(kvKey);
     let history = stored ? JSON.parse(stored) : [];
-
-    // Detectar y guardar datos del cliente
-    const profile = await detectAndSaveProfile(kvKey, message, env);
-
-    // Armar system prompt con perfil si existe
-    const systemPrompt = buildSystemPrompt(profile);
-
     history.push({ role: "user", content: message });
     if (history.length > 10) history = history.slice(-10);
 
-    const aiResponse = await callGroq(history, systemPrompt, env);
+    const aiResponse = await callGroq(history, buildSystemPrompt(profile), env);
 
     history.push({ role: "assistant", content: aiResponse });
-    await env.CHAT_HISTORY.put(kvKey, JSON.stringify(history), {
-      expirationTtl: 86400,
-    });
+    await env.CHAT_HISTORY.put(kvKey, JSON.stringify(history), { expirationTtl: 86400 });
 
     return new Response(
       JSON.stringify({ reply: aiResponse }),
@@ -146,37 +150,43 @@ async function handleWhatsApp(request, env) {
       return new Response("OK", { status: 200 });
     }
 
-    const from          = message.from; // ej: "5491112345678"
+    const from          = message.from;
     const text          = message.text.body;
     const phoneNumberId = value.metadata.phone_number_id;
+    const kvKey         = `wa:${from}`;
 
-    const kvKey = `wa:${from}`;
-    const stored = await env.CHAT_HISTORY.get(kvKey);
-    let history = stored ? JSON.parse(stored) : [];
+    // Cargar perfil o buscar si este número tiene perfil web
+    let profile = await loadProfile(kvKey, env);
 
-    // Detectar y guardar perfil del cliente
-    const profile = await detectAndSaveProfile(kvKey, text, env);
-    // Agregar el teléfono de WhatsApp al perfil automáticamente
-    if (!profile.phone) {
-      profile.phone = from;
-      await env.CHAT_HISTORY.put(
-        `profile:${kvKey}`,
-        JSON.stringify({ ...profile, phone: from }),
-        { expirationTtl: 604800 }
-      );
+    // El teléfono de WhatsApp siempre lo sabemos
+    if (!profile.phone) profile.phone = from;
+
+    // Buscar si este número tiene sesión web vinculada
+    const webKey = await env.CHAT_HISTORY.get(`phone:${from}`);
+    if (webKey) {
+      const webProfile = await loadProfile(webKey, env);
+      // Fusionar — el perfil web puede tener nombre o email
+      if (webProfile.name  && !profile.name)  profile.name  = webProfile.name;
+      if (webProfile.email && !profile.email) profile.email = webProfile.email;
     }
 
-    const systemPrompt = buildSystemPrompt(profile);
+    // Detectar datos nuevos en el mensaje
+    const detected = detectData(text);
+    if (detected.name  && !profile.name)  profile.name  = detected.name;
+    if (detected.email && !profile.email) profile.email = detected.email;
 
+    await saveProfile(kvKey, profile, env);
+
+    // Historial
+    const stored = await env.CHAT_HISTORY.get(kvKey);
+    let history = stored ? JSON.parse(stored) : [];
     history.push({ role: "user", content: text });
     if (history.length > 10) history = history.slice(-10);
 
-    const aiResponse = await callGroq(history, systemPrompt, env);
+    const aiResponse = await callGroq(history, buildSystemPrompt(profile), env);
 
     history.push({ role: "assistant", content: aiResponse });
-    await env.CHAT_HISTORY.put(kvKey, JSON.stringify(history), {
-      expirationTtl: 86400,
-    });
+    await env.CHAT_HISTORY.put(kvKey, JSON.stringify(history), { expirationTtl: 86400 });
 
     await sendWhatsAppMessage(from, aiResponse, phoneNumberId, env);
 
@@ -189,48 +199,50 @@ async function handleWhatsApp(request, env) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Detecta nombre, email y teléfono en el mensaje y los guarda
+// Detecta nombre, email y teléfono en cualquier formato
 // ─────────────────────────────────────────────────────────────
-async function detectAndSaveProfile(kvKey, message, env) {
-  const profileKey = `profile:${kvKey}`;
-  const stored = await env.CHAT_HISTORY.get(profileKey);
-  let profile = stored ? JSON.parse(stored) : {};
-  let updated = false;
+function detectData(message) {
+  const result = {};
 
   // Email
   const emailMatch = message.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/);
-  if (emailMatch && !profile.email) {
-    profile.email = emailMatch[0];
-    updated = true;
+  if (emailMatch) result.email = emailMatch[0];
+
+  // Teléfono internacional — cualquier país
+  const phoneMatch = message.match(/\+?[\d\s\-().]{7,20}\d/);
+  if (phoneMatch) {
+    const clean = phoneMatch[0].replace(/[\s\-().]/g, "");
+    if (clean.length >= 7) result.phone = clean;
   }
 
-  // Teléfono
-  const phoneMatch = message.match(/(?:\+?54|0)?(?:9)?(?:11|[2-9]\d{2,3})[\s\-]?\d{4}[\s\-]?\d{4}/);
-  if (phoneMatch && !profile.phone) {
-    profile.phone = phoneMatch[0].replace(/[\s\-]/g, "");
-    updated = true;
-  }
-
-  // Nombre ("me llamo X", "soy X", "mi nombre es X")
+  // Nombre completo ("me llamo X Y", "soy X Y", "mi nombre es X Y")
   const nameMatch = message.match(
-    /(?:me llamo|soy|mi nombre es)\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)/i
+    /(?:me llamo|soy|mi nombre es)\s+([A-ZÁÉÍÓÚÑA-Z][a-záéíóúña-z]+(?:\s+[A-ZÁÉÍÓÚÑA-Z][a-záéíóúña-z]+)+)/i
   );
-  if (nameMatch && !profile.name) {
-    profile.name = nameMatch[1];
-    updated = true;
-  }
+  if (nameMatch) result.name = nameMatch[1];
 
-  if (updated) {
-    await env.CHAT_HISTORY.put(profileKey, JSON.stringify(profile), {
-      expirationTtl: 604800, // 7 días
-    });
-  }
-
-  return profile;
+  return result;
 }
 
 // ─────────────────────────────────────────────────────────────
-// Construye el system prompt con datos del cliente si los hay
+// Carga perfil desde KV
+// ─────────────────────────────────────────────────────────────
+async function loadProfile(kvKey, env) {
+  const stored = await env.CHAT_HISTORY.get(`profile:${kvKey}`);
+  return stored ? JSON.parse(stored) : {};
+}
+
+// ─────────────────────────────────────────────────────────────
+// Guarda perfil en KV (7 días)
+// ─────────────────────────────────────────────────────────────
+async function saveProfile(kvKey, profile, env) {
+  await env.CHAT_HISTORY.put(`profile:${kvKey}`, JSON.stringify(profile), {
+    expirationTtl: 604800,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// Construye system prompt con perfil del cliente
 // ─────────────────────────────────────────────────────────────
 function buildSystemPrompt(profile) {
   let prompt = SYSTEM_PROMPT;
@@ -265,15 +277,11 @@ async function callGroq(history, systemPrompt, env) {
   });
 
   const data = await response.json();
-  console.log("Groq response:", JSON.stringify(data));
-  return (
-    data.choices?.[0]?.message?.content ||
-    "Disculpá, hubo un error. Intentá de nuevo."
-  );
+  return data.choices?.[0]?.message?.content || "Disculpá, hubo un error. Intentá de nuevo.";
 }
 
 // ─────────────────────────────────────────────────────────────
-// Envía mensaje por WhatsApp Business API
+// Envía mensaje por WhatsApp
 // ─────────────────────────────────────────────────────────────
 async function sendWhatsAppMessage(to, text, phoneNumberId, env) {
   await fetch(`https://graph.facebook.com/v18.0/${phoneNumberId}/messages`, {
