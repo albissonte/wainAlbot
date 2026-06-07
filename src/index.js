@@ -38,7 +38,7 @@ Formulario de solicitud:
 - Cuando el cliente quiera avanzar desde la web, explicale: "Para solicitar tu página web, scrolleá hasta la sección de Paquetes, y elegí el que mejor se adapta a tu negocio. Ahí completás el formulario y nos ponemos en contacto enseguida, o podés iniciar la solicitud al inicio de página con el botón que dice Comenzar solicitud"
 - Cuando el cliente quiera avanzar desde whatsapp, enviále este link personalizado: "inalbis.pages.dev/Formulario/?ref=" seguido de su número de teléfono sin espacios ni símbolos. Ejemplo: inalbis.pages.dev/Formulario/?ref=5491112345678
 Reglas:
-- Respondé siempre en español (a menos que te hablen en otro idioma responde que solanente hablas inglés y español)
+- Respondé siempre en español o inglés (a menos que te hablen en otro idioma responde con educacion que solamente hablás inglés y español)
 - Sé conciso (máximo 3 párrafos cortos)
 - Los 3 planes de pagos son de 249, 499 y 899 dólares, pero decí que los presupuestos son personalizados
 - Si preguntan por el precio, decí que depende del proyecto y ofrecé agendar una llamada gratuita
@@ -63,7 +63,14 @@ export default {
     if (url.pathname === "/chat" && request.method === "POST") {
       return handleWebChat(request, env);
     }
-
+    
+// Endpoint para que el formulario lea el perfil por teléfono
+if (url.pathname === "/profile" && request.method === "GET") {
+  const phone = url.searchParams.get("phone");
+  if (!phone) return new Response(JSON.stringify({}), { headers: { "Content-Type": "application/json", ...CORS } });
+  const profile = await env.CHAT_HISTORY.get(`profile:wa:${phone}`);
+  return new Response(profile || "{}", { headers: { "Content-Type": "application/json", ...CORS } });
+}
     if (request.method === "GET") {
       const mode      = url.searchParams.get("hub.mode");
       const token     = url.searchParams.get("hub.verify_token");
