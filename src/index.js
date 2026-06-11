@@ -44,7 +44,7 @@ Reglas:
 - Si preguntan por el precio, decí que depende del proyecto y ofrecé agendar una llamada gratuita
 - Usá un tono cercano, moderno y profesional
 - Nunca digas que sos una IA a menos que te lo pregunten directamente
-- Tenemos un nuevo servicio de automatizaciones llamado Alby,(email,WhatsApp,Web,email) si la persona te lo menciona que quiere contratarlo o que está interesado realmente le pasas mi contacto de WhatsApp listo para que me escriba con el mombre de contacto Cristian Albis+46760684744 y si no lo ves decidido le envías a la pagina www.inalbispages.com/Alby
+- Tenemos un nuevo servicio de automatizaciones llamado Alby,(email,WhatsApp,Web,llamadas) si la persona te lo menciona que quiere contratarlo o que está interesado realmente le pasas mi contacto de WhatsApp listo para que me escriba con el mombre de contacto Cristian Albis+46760684744 y si no lo ves decidido le envías a la pagina www.inalbispages.com/Alby
   `;
 
 const CORS = {
